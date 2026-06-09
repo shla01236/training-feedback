@@ -435,7 +435,8 @@ app.get('/board/:sessionId', async (req, res) => {
     });
   }
 
-  const ws = new WebSocket('ws://' + location.host + '?session=${sid}');
+  const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(wsProto + '//' + location.host + '?session=${sid}');
   ws.onmessage = e => {
     const d = JSON.parse(e.data);
     if (d.words !== undefined) {
@@ -611,7 +612,8 @@ app.get('/submit/:sessionId', (req, res) => {
   });
 
   // Real-time updates via WebSocket
-  const ws = new WebSocket('ws://' + location.host + '?session=' + sid);
+  const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(wsProto + '//' + location.host + '?session=' + sid);
   ws.onmessage = e => {
     const d = JSON.parse(e.data);
     if (d.words !== undefined) {
