@@ -144,6 +144,7 @@ app.get('/', requireAuth, (req, res) => {
       <td>
         <a href="/board/${s.id}" onclick="event.stopPropagation()" class="link-btn">白板</a>
         <a href="/submit/${s.id}" onclick="event.stopPropagation()" class="link-btn">提交页</a>
+        <a href="javascript:void(0)" onclick="event.stopPropagation();confirmDelete('${s.id}','${esc(s.topic)}')" class="link-btn link-danger">删除</a>
       </td>
     </tr>`;
   }).join('');
@@ -177,6 +178,8 @@ app.get('/', requireAuth, (req, res) => {
   .muted{color:#86868b;font-size:0.82rem}
   .link-btn{color:#0071e3;text-decoration:none;font-size:0.82rem;margin-right:10px;font-weight:500}
   .link-btn:hover{text-decoration:underline}
+  .link-danger{color:#c0392b !important}
+  .link-danger:hover{color:#e74c3c !important}
   .empty{text-align:center;padding:60px;color:#86868b}
   /* Modal */
   .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.3);backdrop-filter:blur(4px);align-items:center;justify-content:center;z-index:100}
@@ -210,6 +213,7 @@ app.get('/', requireAuth, (req, res) => {
   </div>
 </div>
 
+<!-- 新建收集弹窗 -->
 <div class="modal-bg" id="modal">
   <div class="modal">
     <h2>新建反馈收集</h2>
@@ -222,7 +226,23 @@ app.get('/', requireAuth, (req, res) => {
   </div>
 </div>
 
+<!-- 删除确认弹窗 -->
+<div class="modal-bg" id="deleteModal">
+  <div class="modal">
+    <h2>删除收集</h2>
+    <p id="deleteModalDesc" style="margin-bottom:20px"></p>
+    <div style="background:#fff5f5;border:1px solid #ffd0d0;border-radius:10px;padding:12px 16px;font-size:0.85rem;color:#c0392b;margin-bottom:8px">
+      ⚠️ 删除后所有反馈数据将无法恢复
+    </div>
+    <div class="modal-footer" style="margin-top:16px">
+      <button class="btn btn-cancel" onclick="closeDeleteModal()">取消</button>
+      <button class="btn" id="confirmDeleteBtn" style="background:#c0392b;color:#fff" onclick="doDelete()">确认删除</button>
+    </div>
+  </div>
+</div>
+
 <script>
+  // ── 新建弹窗 ──
   function openModal(){document.getElementById('modal').classList.add('open');document.getElementById('topicInput').focus()}
   function closeModal(){document.getElementById('modal').classList.remove('open')}
   document.getElementById('modal').addEventListener('click', e => { if(e.target===e.currentTarget) closeModal() })
@@ -232,6 +252,30 @@ app.get('/', requireAuth, (req, res) => {
     fetch('/api/session/new', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({topic})})
       .then(r=>r.json()).then(d=>{ window.open('/board/'+d.id,'_blank'); location.reload(); });
   }
+
+  // ── 删除弹窗 ──
+  let _deleteId = null;
+  function confirmDelete(id, topic) {
+    _deleteId = id;
+    document.getElementById('deleteModalDesc').textContent = '确定要删除「' + topic + '」吗？';
+    document.getElementById('deleteModal').classList.add('open');
+  }
+  function closeDeleteModal() {
+    _deleteId = null;
+    document.getElementById('deleteModal').classList.remove('open');
+  }
+  document.getElementById('deleteModal').addEventListener('click', e => { if(e.target===e.currentTarget) closeDeleteModal() })
+  function doDelete() {
+    if (!_deleteId) return;
+    const btn = document.getElementById('confirmDeleteBtn');
+    btn.disabled = true;
+    btn.textContent = '删除中…';
+    fetch('/api/session/' + _deleteId, {method:'DELETE'})
+      .then(r => r.json()).then(d => {
+        if (d.ok) location.reload();
+        else { btn.disabled=false; btn.textContent='确认删除'; }
+      });
+  }
 </script>
 </body>
 </html>`);
@@ -240,6 +284,18 @@ app.get('/', requireAuth, (req, res) => {
 function esc(str) {
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+
+// Delete session API
+app.delete('/api/session/:sessionId', requireAuth, (req, res) => {
+  const sid = req.params.sessionId;
+  if (!sessions[sid]) return res.json({ ok: false, error: 'Not found' });
+  // close all connected WebSocket clients
+  sessions[sid].clients.forEach(ws => ws.close());
+  delete sessions[sid];
+  const idx = sessionOrder.indexOf(sid);
+  if (idx !== -1) sessionOrder.splice(idx, 1);
+  res.json({ ok: true });
+});
 
 // Create new session API
 app.post('/api/session/new', requireAuth, (req, res) => {
