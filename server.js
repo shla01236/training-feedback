@@ -324,18 +324,34 @@ app.get('/board/:sessionId', async (req, res) => {
   *{margin:0;padding:0;box-sizing:border-box}
   body{background:#f7f7fa;width:100vw;height:100vh;overflow:hidden;font-family:'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;display:flex;flex-direction:row}
 
-  /* ── Left: word cloud (75%) ── */
+  /* ── Left: main area (75%) ── */
   .cloud-col{flex:3;display:flex;flex-direction:column;min-width:0;border-right:1px solid #ebebef}
 
-  .topic-bar{flex-shrink:0;padding:24px 40px 20px;background:#fff;border-bottom:1px solid #ebebef}
-  .topic-label{font-size:0.7rem;font-weight:600;color:#b0b0bc;letter-spacing:2px;text-transform:uppercase;margin-bottom:6px}
-  .topic-text{font-size:2.2rem;font-weight:800;color:#1a1a2e;line-height:1.2;letter-spacing:-0.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .topic-bar{flex-shrink:0;padding:18px 32px 14px;background:#fff;border-bottom:1px solid #ebebef;display:flex;align-items:center;justify-content:space-between;gap:16px}
+  .topic-left{min-width:0;flex:1}
+  .topic-label{font-size:0.7rem;font-weight:600;color:#b0b0bc;letter-spacing:2px;text-transform:uppercase;margin-bottom:5px}
+  .topic-text{font-size:2rem;font-weight:800;color:#1a1a2e;line-height:1.2;letter-spacing:-0.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
-  .cloud-area{flex:1;position:relative;background:#fff}
+  /* view toggle */
+  .view-toggle{flex-shrink:0;display:flex;background:#f0f0f5;border-radius:10px;padding:3px;gap:2px}
+  .toggle-btn{padding:6px 16px;border:none;background:transparent;border-radius:8px;font-size:0.82rem;font-weight:600;color:#86868b;cursor:pointer;transition:all .15s;white-space:nowrap}
+  .toggle-btn.active{background:#fff;color:#1a1a2e;box-shadow:0 1px 4px rgba(0,0,0,.1)}
+
+  /* cloud view */
+  .cloud-area{flex:1;position:relative;background:#fff;display:flex}
   canvas{display:block;position:absolute;inset:0}
   .empty-hint{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;pointer-events:none}
   .empty-hint .big{font-size:2rem;font-weight:700;color:#dddde3}
   .empty-hint .small{font-size:0.9rem;color:#c7c7d0}
+
+  /* list view */
+  .list-area{flex:1;background:#fff;overflow-y:auto;padding:24px 32px;display:none}
+  .list-area.active{display:block}
+  .list-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;align-content:start}
+  .list-item{background:#fafaf8;border:1px solid #f0ece6;border-radius:12px;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .list-word{font-size:1.1rem;font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .list-badge{flex-shrink:0;background:#1a1a2e;color:#fff;font-size:0.75rem;font-weight:700;padding:3px 10px;border-radius:20px;min-width:36px;text-align:center}
+  .list-empty{text-align:center;padding:60px;color:#dddde3;font-size:1.2rem;font-weight:600}
 
   /* ── Right: QR panel (25%) ── */
   .qr-col{flex:1;min-width:200px;max-width:320px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:32px 24px;background:#f7f7fa}
@@ -351,8 +367,14 @@ app.get('/board/:sessionId', async (req, res) => {
 
 <div class="cloud-col">
   <div class="topic-bar">
-    <div class="topic-label">当前话题</div>
-    <div class="topic-text">${esc(s.topic)}</div>
+    <div class="topic-left">
+      <div class="topic-label">当前话题</div>
+      <div class="topic-text">${esc(s.topic)}</div>
+    </div>
+    <div class="view-toggle">
+      <button class="toggle-btn active" id="btnCloud" onclick="switchView('cloud')">词云</button>
+      <button class="toggle-btn" id="btnList" onclick="switchView('list')">列表</button>
+    </div>
   </div>
   <div class="cloud-area" id="cloudArea">
     <canvas id="canvas"></canvas>
@@ -360,6 +382,9 @@ app.get('/board/:sessionId', async (req, res) => {
       <div class="big">等待反馈中…</div>
       <div class="small">请扫描右侧二维码提交想法</div>
     </div>
+  </div>
+  <div class="list-area" id="listArea">
+    <div class="list-grid" id="listGrid"></div>
   </div>
 </div>
 
@@ -374,37 +399,47 @@ app.get('/board/:sessionId', async (req, res) => {
 </div>
 
 <script>
-  const canvas = document.getElementById('canvas');
-  const empty  = document.getElementById('empty');
-  const cnt    = document.getElementById('cnt');
-  const area   = document.getElementById('cloudArea');
+  const canvas   = document.getElementById('canvas');
+  const empty    = document.getElementById('empty');
+  const cnt      = document.getElementById('cnt');
+  const cloudArea = document.getElementById('cloudArea');
+  const listArea  = document.getElementById('listArea');
+  const listGrid  = document.getElementById('listGrid');
 
-  // Maillard palette — rich, warm, earthy tones with more variety
+  // Maillard palette
   const PALETTE = [
-    '#7B3F00', // dark chocolate
-    '#A0522D', // sienna
-    '#C4773B', // caramel
-    '#B85C38', // burnt sienna
-    '#C8882A', // golden amber
-    '#8B6914', // dark gold
-    '#D4874E', // warm ochre
-    '#964B2A', // brick rust
-    '#6B3A2A', // espresso
-    '#B8763A', // toasted oak
-    '#9E4A1E', // deep rust
-    '#C9973A', // honey amber
-    '#7A4419', // mahogany
-    '#D4A04A', // butterscotch
-    '#855C3A', // walnut
-    '#A86B2D', // toffee
+    '#7B3F00','#A0522D','#C4773B','#B85C38','#C8882A',
+    '#8B6914','#D4874E','#964B2A','#6B3A2A','#B8763A',
+    '#9E4A1E','#C9973A','#7A4419','#D4A04A','#855C3A','#A86B2D',
   ];
+  function wordColor(word) {
+    return PALETTE[Math.abs(word.split('').reduce((a,c) => a + c.charCodeAt(0), 0)) % PALETTE.length];
+  }
 
+  // ── View toggle ──────────────────────────────────────────────────────────────
+  let currentView = 'cloud';
+  function switchView(v) {
+    currentView = v;
+    document.getElementById('btnCloud').classList.toggle('active', v === 'cloud');
+    document.getElementById('btnList').classList.toggle('active', v === 'list');
+    if (v === 'cloud') {
+      cloudArea.style.display = 'flex';
+      listArea.classList.remove('active');
+      resize(); renderCloud();
+    } else {
+      cloudArea.style.display = 'none';
+      listArea.classList.add('active');
+      renderList();
+    }
+  }
+
+  // ── Word cloud ───────────────────────────────────────────────────────────────
   function resize() {
-    canvas.width  = area.offsetWidth;
-    canvas.height = area.offsetHeight;
+    canvas.width  = cloudArea.offsetWidth;
+    canvas.height = cloudArea.offsetHeight;
   }
   resize();
-  window.addEventListener('resize', () => { resize(); renderCloud(); });
+  window.addEventListener('resize', () => { resize(); if (currentView === 'cloud') renderCloud(); });
 
   let wordData = [];
 
@@ -415,35 +450,54 @@ app.get('/board/:sessionId', async (req, res) => {
 
     const maxCount = Math.max(...wordData.map(([,c]) => c));
     const w = canvas.width, h = canvas.height;
+    // Tighter packing: smaller gridSize + minSize to fit more words
+    const gridSize = Math.max(4, Math.round(8 * w / 1400));
 
     WordCloud(canvas, {
       list: wordData,
-      gridSize: Math.round(12 * w / 1200),
+      gridSize,
       weightFactor: weight => {
-        // count=1 → base size; grows with sqrt of count so it doesn't run away
-        const base = Math.min(w, h) / 10;
-        return Math.max(20, base * (0.6 + Math.sqrt(weight - 1) * 0.5));
+        const base = Math.min(w, h) / 12;
+        return Math.max(14, base * (0.45 + Math.sqrt(weight - 1) * 0.42));
       },
       fontFamily: 'PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif',
       fontWeight: '800',
-      color: word => PALETTE[Math.abs(word.split('').reduce((a,c) => a + c.charCodeAt(0), 0)) % PALETTE.length],
+      color: word => wordColor(word),
       rotateRatio: 0,
       rotationSteps: 1,
       backgroundColor: '#ffffff',
       drawOutOfBound: false,
-      minSize: 14,
+      minSize: 10,
+      shrinkToFit: true,
     });
   }
 
+  // ── List view ────────────────────────────────────────────────────────────────
+  function renderList() {
+    if (!wordData.length) {
+      listGrid.innerHTML = '<div class="list-empty">等待反馈中…</div>';
+      return;
+    }
+    const sorted = [...wordData].sort((a, b) => b[1] - a[1]);
+    listGrid.innerHTML = sorted.map(([word, count]) =>
+      '<div class="list-item">' +
+        '<span class="list-word" style="color:' + wordColor(word) + '">' + word + '</span>' +
+        '<span class="list-badge">' + count + '</span>' +
+      '</div>'
+    ).join('');
+  }
+
+  // ── WebSocket ────────────────────────────────────────────────────────────────
   const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const ws = new WebSocket(wsProto + '//' + location.host + '?session=${sid}');
   ws.onmessage = e => {
     const d = JSON.parse(e.data);
     if (d.words !== undefined) {
       wordData = d.words;
-      renderCloud();
       const total = d.words.reduce((s, [,c]) => s + c, 0);
       cnt.textContent = total + ' 条反馈';
+      if (currentView === 'cloud') renderCloud();
+      else renderList();
     }
   };
   ws.onclose = () => setTimeout(() => location.reload(), 3000);
