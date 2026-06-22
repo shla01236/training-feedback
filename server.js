@@ -246,7 +246,7 @@ app.get('/', requireAuth, (req, res) => {
   function openModal(){document.getElementById('modal').classList.add('open');document.getElementById('topicInput').focus()}
   function closeModal(){document.getElementById('modal').classList.remove('open')}
   document.getElementById('modal').addEventListener('click', e => { if(e.target===e.currentTarget) closeModal() })
-  document.getElementById('topicInput').addEventListener('keydown', e => { if(e.key==='Enter') createSession() })
+  document.getElementById('topicInput').addEventListener('keydown', e => { if(e.key==='Enter') e.preventDefault() })
   function createSession(){
     const topic = document.getElementById('topicInput').value.trim() || '未命名收集';
     fetch('/api/session/new', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({topic})})
